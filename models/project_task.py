@@ -9,6 +9,27 @@ class Task(models.Model):
 
     stock_move_customer_product_count = fields.Integer(compute='_compute_stock_move_customer_product_total')
 
+    def write(self, vals):
+        result = super().write(vals)
+        if 'stage_id' in vals:
+            for task in self:
+                stage = task.stage_id
+                if stage and stage.name == 'Done' and task.sale_order_id:
+                    for picking in task.sale_order_id.picking_ids:
+                        if picking.state not in ['done', 'cancel']:
+                            if picking.state != 'assigned':
+                                picking.action_confirm()
+                                picking._action_assign()
+                            picking.with_context(skip_sms=True, skip_immediate=True).button_validate()
+        return result
+
+    def _ensure_sale_order_unlocked(self):
+        """Ensures the sale order is unlocked for FSM product updates"""
+        self.ensure_one()
+        if self.sale_order_id:
+            self.sale_order_id.sudo().action_unlock()
+        return True
+
     def _prepare_materials_delivery(self):
         """ Prepare the materials delivery
 
